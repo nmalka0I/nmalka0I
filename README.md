@@ -1,31 +1,36 @@
--- LocalScript for Delta Executor (Single Remote Lock)
+-- LocalScript for Delta Executor (Working HTTP Chat)
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- Network Prefix to identify chat messages
-local CHAT_PREFIX = "[DELTA_CHAT_v3]:"
-
--- 1. Find and lock onto a single target RemoteEvent
-local SelectedRemote = nil
-
-for _, obj in pairs(game:GetDescendants()) do
-	if obj:IsA("RemoteEvent") then
-		SelectedRemote = obj
-		break -- Stop searching immediately after finding the first one
-	end
+-- Detector for Executor HTTP Request Function
+local requestFunc = (syn and syn.request) or (http and http.request) or request or http_request
+if not requestFunc then
+	warn("Your executor does not support HTTP requests!")
+	return
 end
+
+---------------------------------------------------------
+-- CONFIGURATION
+---------------------------------------------------------
+local BIN_ID = "6a693f0eda38895dfe9da1e5"
+local MASTER_KEY = "$2a$10$O1yCHbB43OWBZZ14WiTlhunwsUSp5ZDdE6LqfTQa40FLec4BfnpTG"
+
+local BIN_URL = "https://api.jsonbin.io/v3/b/" .. BIN_ID
+---------------------------------------------------------
 
 -- UI Setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "RobloxChatSimulator"
+screenGui.Name = "DeltaHttpChat"
 screenGui.ResetOnSpawn = false
-screenGui.DisplayOrder = 100 
+screenGui.DisplayOrder = 100
 screenGui.Parent = PlayerGui
 
--- Circular Chat Icon Button
+-- Circular Toggle Button
 local toggleButton = Instance.new("ImageButton")
 toggleButton.Name = "ToggleChatButton"
 toggleButton.Size = UDim2.new(0, 36, 0, 36)
@@ -33,8 +38,7 @@ toggleButton.Position = UDim2.new(0, 10, 0, 10)
 toggleButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 toggleButton.BackgroundTransparency = 0.3
 toggleButton.BorderSizePixel = 0
-toggleButton.Image = "rbxassetid://116758803583558" 
-toggleButton.ImageColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.Image = "rbxassetid://116758803583558"
 toggleButton.Parent = screenGui
 
 local buttonCorner = Instance.new("UICorner")
@@ -48,7 +52,7 @@ buttonPadding.PaddingLeft = UDim.new(0, 6)
 buttonPadding.PaddingRight = UDim.new(0, 6)
 buttonPadding.Parent = toggleButton
 
--- Solid Black Chat Window
+-- Main Chat Frame
 local chatFrame = Instance.new("Frame")
 chatFrame.Name = "ChatFrame"
 chatFrame.Size = UDim2.new(0, 270, 0, 140)
@@ -56,20 +60,17 @@ chatFrame.Position = UDim2.new(0, 10, 0, 52)
 chatFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 chatFrame.BackgroundTransparency = 0.25
 chatFrame.BorderSizePixel = 0
-chatFrame.Visible = true
 chatFrame.Parent = screenGui
 
 local chatCorner = Instance.new("UICorner")
 chatCorner.CornerRadius = UDim.new(0, 8)
 chatCorner.Parent = chatFrame
 
--- Scrolling Frame
+-- Scrolling Message Container
 local scrollFrame = Instance.new("ScrollingFrame")
-scrollFrame.Name = "MessageScroll"
 scrollFrame.Size = UDim2.new(1, -8, 1, -38)
 scrollFrame.Position = UDim2.new(0, 4, 0, 4)
 scrollFrame.BackgroundTransparency = 1
-scrollFrame.BorderSizePixel = 0
 scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 scrollFrame.ScrollBarThickness = 3
@@ -80,18 +81,13 @@ uiList.SortOrder = Enum.SortOrder.LayoutOrder
 uiList.Padding = UDim.new(0, 2)
 uiList.Parent = scrollFrame
 
--- Text Input Box
+-- Input Box
 local chatBox = Instance.new("TextBox")
-chatBox.Name = "ChatBox"
 chatBox.Size = UDim2.new(1, -8, 0, 26)
 chatBox.Position = UDim2.new(0, 4, 1, -30)
 chatBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 chatBox.BackgroundTransparency = 0.2
-chatBox.BorderSizePixel = 0
-chatBox.ClearTextOnFocus = false
-chatBox.Font = Enum.Font.SourceSans
-chatBox.PlaceholderText = "To chat click here..."
-chatBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+chatBox.PlaceholderText = "Type message here..."
 chatBox.Text = ""
 chatBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 chatBox.TextSize = 13
@@ -106,7 +102,7 @@ local boxPadding = Instance.new("UIPadding")
 boxPadding.PaddingLeft = UDim.new(0, 6)
 boxPadding.Parent = chatBox
 
--- Dragging Functionality
+-- Dragging Helper
 local function makeDraggable(guiObject)
 	local dragging = false
 	local dragInput, dragStart, startPos
@@ -177,69 +173,102 @@ local function addMessage(speaker, message, color)
 	textLabel.TextXAlignment = Enum.TextXAlignment.Left
 	textLabel.TextWrapped = true
 	textLabel.RichText = true
-	
+
 	if speaker then
 		textLabel.Text = string.format("<font color=\"rgb(200,200,200)\">[%s]:</font> <font color=\"rgb(%d,%d,%d)\">%s</font>", 
 			speaker, color.R * 255, color.G * 255, color.B * 255, message)
 	else
 		textLabel.Text = string.format("<font color=\"rgb(255,100,100)\">%s</font>", message)
 	end
-	
+
 	textLabel.Parent = scrollFrame
 	scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
 end
 
--- Helper to parse incoming chat payloads
-local function parseIncoming(data)
-	if type(data) == "string" and string.sub(data, 1, #CHAT_PREFIX) == CHAT_PREFIX then
-		local payload = string.sub(data, #CHAT_PREFIX + 1)
-		local splitPos = string.find(payload, ":")
-		
-		if splitPos then
-			local sender = string.sub(payload, 1, splitPos - 1)
-			local message = string.sub(payload, splitPos + 1)
-			
-			if sender ~= Player.Name then
-				addMessage(sender, message, Color3.fromRGB(100, 200, 255))
+---------------------------------------------------------
+-- NETWORK SYNC (POLL & BROADCAST)
+---------------------------------------------------------
+
+local processedMessages = {}
+
+-- Poll for new messages every 2 seconds
+task.spawn(function()
+	while task.wait(2) do
+		pcall(function()
+			local response = requestFunc({
+				Url = BIN_URL .. "/latest",
+				Method = "GET",
+				Headers = {
+					["X-Master-Key"] = MASTER_KEY
+				}
+			})
+
+			if response and response.Body then
+				local decoded = HttpService:JSONDecode(response.Body)
+				local chatList = decoded.record
+
+				if type(chatList) == "table" then
+					for _, item in ipairs(chatList) do
+						local msgKey = item.user .. ":" .. item.msg .. ":" .. tostring(item.time)
+						if not processedMessages[msgKey] then
+							processedMessages[msgKey] = true
+							
+							if item.user ~= Player.Name then
+								addMessage(item.user, item.msg, Color3.fromRGB(100, 200, 255))
+							end
+						end
+					end
+				end
 			end
-		end
+		end)
 	end
-end
+end)
 
--- Listen ONLY to the selected remote
-if SelectedRemote then
-	SelectedRemote.OnClientEvent:Connect(function(...)
-		local args = {...}
-		for _, v in pairs(args) do
-			parseIncoming(v)
-		end
-	end)
-end
-
--- Send message via ONLY the selected remote
+-- Send new message when pressing Enter
 chatBox.FocusLost:Connect(function(enterPressed)
 	if enterPressed and chatBox.Text ~= "" then
 		local msg = chatBox.Text
 		chatBox.Text = ""
-		
-		-- Display locally
+
 		addMessage(Player.Name, msg, Color3.fromRGB(255, 255, 255))
-		
-		if SelectedRemote then
-			local encodedMessage = CHAT_PREFIX .. Player.Name .. ":" .. msg
+
+		task.spawn(function()
 			pcall(function()
-				SelectedRemote:FireServer(encodedMessage)
+				local fetchResponse = requestFunc({
+					Url = BIN_URL .. "/latest",
+					Method = "GET",
+					Headers = { ["X-Master-Key"] = MASTER_KEY }
+				})
+
+				local currentList = {}
+				if fetchResponse and fetchResponse.Body then
+					local decoded = HttpService:JSONDecode(fetchResponse.Body)
+					currentList = decoded.record or {}
+				end
+
+				local newEntry = {
+					user = Player.Name,
+					msg = msg,
+					time = os.time()
+				}
+				table.insert(currentList, newEntry)
+
+				if #currentList > 20 then
+					table.remove(currentList, 1)
+				end
+
+				requestFunc({
+					Url = BIN_URL,
+					Method = "PUT",
+					Headers = {
+						["Content-Type"] = "application/json",
+						["X-Master-Key"] = MASTER_KEY
+					},
+					Body = HttpService:JSONEncode(currentList)
+				})
 			end)
-		else
-			addMessage(nil, "Error: No valid RemoteEvent found in this game.", Color3.fromRGB(255, 100, 100))
-		end
+		end)
 	end
 end)
 
--- Initial Welcome Message
-task.wait(0.5)
-if SelectedRemote then
-	addMessage(nil, "Locked onto remote: " .. SelectedRemote.Name, Color3.fromRGB(255, 255, 255))
-else
-	addMessage(nil, "No RemoteEvent found in game.", Color3.fromRGB(255, 100, 100))
-end
+addMessage(nil, "Connected to Global HTTP Chat!", Color3.fromRGB(100, 255, 100))
