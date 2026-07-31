@@ -17,8 +17,8 @@ end
 ---------------------------------------------------------
 -- CONFIGURATION
 ---------------------------------------------------------
-local BIN_ID = "6a693f0eda38895dfe9da1e5"
-local MASTER_KEY = "$2a$10$O1yCHbB43OWBZZ14WiTlhunwsUSp5ZDdE6LqfTQa40FLec4BfnpTG"
+local BIN_ID = "6a6ce0dcf5f4af5e29db0374"
+local MASTER_KEY = "$2a$10$bRRpF3qqRayEUQNrEW4z8uOFuHeBuAF.2NI.KJ/Us9Mcldjf2cHCa"
 
 local BIN_URL = "https://api.jsonbin.io/v3/b/" .. BIN_ID
 ---------------------------------------------------------
