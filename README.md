@@ -1,6 +1,8 @@
--- LocalScript for Delta Executor (Working HTTP Chat)
+-- LocalScript for Delta Executor (In-Game Chat & JSON-Chat Setup)
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
@@ -19,9 +21,10 @@ end
 ---------------------------------------------------------
 local BIN_ID = "6a6ce0dcf5f4af5e29db0374"
 local MASTER_KEY = "$2a$10$bRRpF3qqRayEUQNrEW4z8uOFuHeBuAF.2NI.KJ/Us9Mcldjf2cHCa"
-
 local BIN_URL = "https://api.jsonbin.io/v3/b/" .. BIN_ID
 ---------------------------------------------------------
+
+local currentTab = "InGame"
 
 -- UI Setup
 local screenGui = Instance.new("ScreenGui")
@@ -55,7 +58,7 @@ buttonPadding.Parent = toggleButton
 -- Main Chat Frame
 local chatFrame = Instance.new("Frame")
 chatFrame.Name = "ChatFrame"
-chatFrame.Size = UDim2.new(0, 270, 0, 140)
+chatFrame.Size = UDim2.new(0, 270, 0, 160)
 chatFrame.Position = UDim2.new(0, 10, 0, 52)
 chatFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 chatFrame.BackgroundTransparency = 0.25
@@ -66,10 +69,45 @@ local chatCorner = Instance.new("UICorner")
 chatCorner.CornerRadius = UDim.new(0, 8)
 chatCorner.Parent = chatFrame
 
+-- Tab Bar
+local tabBar = Instance.new("Frame")
+tabBar.Name = "TabBar"
+tabBar.Size = UDim2.new(1, -8, 0, 20)
+tabBar.Position = UDim2.new(0, 4, 0, 4)
+tabBar.BackgroundTransparency = 1
+tabBar.Parent = chatFrame
+
+local tabLayout = Instance.new("UIListLayout")
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 4)
+tabLayout.Parent = tabBar
+
+local function createTabBtn(text)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0.5, -2, 1, 0)
+	btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	btn.BackgroundTransparency = 0.2
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.SourceSansBold
+	btn.Text = text
+	btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+	btn.TextSize = 12
+	btn.Parent = tabBar
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 4)
+	c.Parent = btn
+
+	return btn
+end
+
+local inGameBtn = createTabBtn("In-Game Chat")
+local jsonChatBtn = createTabBtn("JSON-Chat")
+
 -- Scrolling Message Container
 local scrollFrame = Instance.new("ScrollingFrame")
-scrollFrame.Size = UDim2.new(1, -8, 1, -38)
-scrollFrame.Position = UDim2.new(0, 4, 0, 4)
+scrollFrame.Size = UDim2.new(1, -8, 1, -62)
+scrollFrame.Position = UDim2.new(0, 4, 0, 28)
 scrollFrame.BackgroundTransparency = 1
 scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -162,8 +200,37 @@ toggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
+-- Tab Switcher Logic
+local function switchTab(tab)
+	currentTab = tab
+	if currentTab == "InGame" then
+		inGameBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		jsonChatBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+	else
+		jsonChatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		inGameBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+	end
+
+	for _, child in ipairs(scrollFrame:GetChildren()) do
+		if child:IsA("TextLabel") then
+			local category = child:GetAttribute("Category")
+			if category == "System" or category == currentTab then
+				child.Visible = true
+			else
+				child.Visible = false
+			end
+		end
+	end
+	scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
+end
+
+inGameBtn.MouseButton1Click:Connect(function() switchTab("InGame") end)
+jsonChatBtn.MouseButton1Click:Connect(function() switchTab("JSONChat") end)
+
 -- UI Display Function
-local function addMessage(speaker, message, color)
+local function addMessage(speaker, message, category, color)
+	category = category or "InGame"
+	
 	local textLabel = Instance.new("TextLabel")
 	textLabel.Size = UDim2.new(1, 0, 0, 0)
 	textLabel.AutomaticSize = Enum.AutomaticSize.Y
@@ -173,16 +240,108 @@ local function addMessage(speaker, message, color)
 	textLabel.TextXAlignment = Enum.TextXAlignment.Left
 	textLabel.TextWrapped = true
 	textLabel.RichText = true
+	textLabel:SetAttribute("Category", category)
 
 	if speaker then
+		local c = color or Color3.fromRGB(100, 200, 255)
 		textLabel.Text = string.format("<font color=\"rgb(200,200,200)\">[%s]:</font> <font color=\"rgb(%d,%d,%d)\">%s</font>", 
-			speaker, color.R * 255, color.G * 255, color.B * 255, message)
+			speaker, c.R * 255, c.G * 255, c.B * 255, message)
 	else
-		textLabel.Text = string.format("<font color=\"rgb(255,100,100)\">%s</font>", message)
+		local c = color or Color3.fromRGB(255, 100, 100)
+		textLabel.Text = string.format("<font color=\"rgb(%d,%d,%d)\">%s</font>", c.R * 255, c.G * 255, c.B * 255, message)
 	end
 
 	textLabel.Parent = scrollFrame
+	
+	-- Apply visibility depending on active tab
+	if category == "System" or category == currentTab then
+		textLabel.Visible = true
+	else
+		textLabel.Visible = false
+	end
+	
 	scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
+end
+
+---------------------------------------------------------
+-- HTTP PUSH (BROADCAST HELPER)
+---------------------------------------------------------
+local function broadcastToJSON(senderName, messageText)
+	task.spawn(function()
+		pcall(function()
+			local fetchResponse = requestFunc({
+				Url = BIN_URL .. "/latest",
+				Method = "GET",
+				Headers = { ["X-Master-Key"] = MASTER_KEY }
+			})
+
+			local currentList = {}
+			if fetchResponse and fetchResponse.Body then
+				local decoded = HttpService:JSONDecode(fetchResponse.Body)
+				currentList = decoded.record or {}
+			end
+
+			local newEntry = {
+				user = senderName,
+				msg = messageText,
+				time = os.time()
+			}
+			table.insert(currentList, newEntry)
+
+			if #currentList > 20 then
+				table.remove(currentList, 1)
+			end
+
+			requestFunc({
+				Url = BIN_URL,
+				Method = "PUT",
+				Headers = {
+					["Content-Type"] = "application/json",
+					["X-Master-Key"] = MASTER_KEY
+				},
+				Body = HttpService:JSONEncode(currentList)
+			})
+		end)
+	end)
+end
+
+---------------------------------------------------------
+-- REAL IN-GAME CHAT LISTENER & RELAY
+---------------------------------------------------------
+local function handleIncomingRealChat(senderName, messageText)
+	addMessage(senderName, messageText, "InGame", Color3.fromRGB(255, 255, 255))
+	broadcastToJSON("[RC] " .. senderName, messageText)
+end
+
+-- Hook into TextChatService channels safely
+if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+	local textChannels = TextChatService:FindFirstChild("TextChannels")
+	if textChannels then
+		for _, channel in ipairs(textChannels:GetChildren()) do
+			if channel:IsA("TextChannel") then
+				channel.MessageReceived:Connect(function(msg)
+					if msg.TextSource then
+						local senderPlayer = Players:GetPlayerByUserId(msg.TextSource.UserId)
+						local name = senderPlayer and senderPlayer.Name or "Unknown"
+						handleIncomingRealChat(name, msg.Text)
+					end
+				end)
+			end
+		end
+	end
+end
+
+-- Fallback for Legacy Chat engine
+local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+if chatEvents then
+	local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
+	if onMessageDone then
+		onMessageDone.OnClientEvent:Connect(function(data)
+			if data and data.FromSpeaker and data.Message then
+				handleIncomingRealChat(data.FromSpeaker, data.Message)
+			end
+		end)
+	end
 end
 
 ---------------------------------------------------------
@@ -214,7 +373,7 @@ task.spawn(function()
 							processedMessages[msgKey] = true
 							
 							if item.user ~= Player.Name then
-								addMessage(item.user, item.msg, Color3.fromRGB(100, 200, 255))
+								addMessage(item.user, item.msg, "JSONChat", Color3.fromRGB(100, 200, 255))
 							end
 						end
 					end
@@ -224,51 +383,16 @@ task.spawn(function()
 	end
 end)
 
--- Send new message when pressing Enter
+-- Send new message when pressing Enter inside custom box
 chatBox.FocusLost:Connect(function(enterPressed)
 	if enterPressed and chatBox.Text ~= "" then
 		local msg = chatBox.Text
 		chatBox.Text = ""
 
-		addMessage(Player.Name, msg, Color3.fromRGB(255, 255, 255))
-
-		task.spawn(function()
-			pcall(function()
-				local fetchResponse = requestFunc({
-					Url = BIN_URL .. "/latest",
-					Method = "GET",
-					Headers = { ["X-Master-Key"] = MASTER_KEY }
-				})
-
-				local currentList = {}
-				if fetchResponse and fetchResponse.Body then
-					local decoded = HttpService:JSONDecode(fetchResponse.Body)
-					currentList = decoded.record or {}
-				end
-
-				local newEntry = {
-					user = Player.Name,
-					msg = msg,
-					time = os.time()
-				}
-				table.insert(currentList, newEntry)
-
-				if #currentList > 20 then
-					table.remove(currentList, 1)
-				end
-
-				requestFunc({
-					Url = BIN_URL,
-					Method = "PUT",
-					Headers = {
-						["Content-Type"] = "application/json",
-						["X-Master-Key"] = MASTER_KEY
-					},
-					Body = HttpService:JSONEncode(currentList)
-				})
-			end)
-		end)
+		addMessage(Player.Name, msg, currentTab, Color3.fromRGB(255, 255, 255))
+		broadcastToJSON(Player.Name, msg)
 	end
 end)
 
-addMessage(nil, "Connected to Global HTTP Chat!", Color3.fromRGB(100, 255, 100))
+addMessage(nil, "Connected to Global HTTP Chat!", "System", Color3.fromRGB(100, 255, 100))
+switchTab("InGame")
