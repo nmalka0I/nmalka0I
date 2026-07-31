@@ -1,4 +1,4 @@
--- LocalScript for Delta Executor (HTTP Global Chat + Real Chat Auto-Relay)
+-- LocalScript for Delta Executor (Private Chat + Read-Only RC JSON Stream)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,7 +24,7 @@ local MASTER_KEY = "$2a$10$bRRpF3qqRayEUQNrEW4z8uOFuHeBuAF.2NI.KJ/Us9Mcldjf2cHCa
 local BIN_URL = "https://api.jsonbin.io/v3/b/" .. BIN_ID
 ---------------------------------------------------------
 
-local currentTab = "Global"
+local currentTab = "Private"
 
 -- UI Setup
 local screenGui = Instance.new("ScreenGui")
@@ -101,8 +101,8 @@ local function createTabBtn(text)
 	return btn
 end
 
-local globalBtn = createTabBtn("Global Chat")
-local realChatBtn = createTabBtn("Real Chat")
+local privateBtn = createTabBtn("Private Chat")
+local realChatBtn = createTabBtn("Real Chat Stream")
 
 -- Scrolling Message Container
 local scrollFrame = Instance.new("ScrollingFrame")
@@ -119,13 +119,13 @@ uiList.SortOrder = Enum.SortOrder.LayoutOrder
 uiList.Padding = UDim.new(0, 2)
 uiList.Parent = scrollFrame
 
--- Input Box
+-- Input Box (For Private Chat)
 local chatBox = Instance.new("TextBox")
 chatBox.Size = UDim2.new(1, -8, 0, 26)
 chatBox.Position = UDim2.new(0, 4, 1, -30)
 chatBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 chatBox.BackgroundTransparency = 0.2
-chatBox.PlaceholderText = "Type message here..."
+chatBox.PlaceholderText = "Type private message here..."
 chatBox.Text = ""
 chatBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 chatBox.TextSize = 13
@@ -203,14 +203,14 @@ end)
 -- Tab Switcher Logic
 local function switchTab(tab)
 	currentTab = tab
-	if currentTab == "Global" then
-		globalBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	if currentTab == "Private" then
+		privateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 		realChatBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
 		chatBox.Visible = true
 		scrollFrame.Size = UDim2.new(1, -8, 1, -62)
 	else
 		realChatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		globalBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+		privateBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
 		chatBox.Visible = false
 		scrollFrame.Size = UDim2.new(1, -8, 1, -34)
 	end
@@ -228,12 +228,12 @@ local function switchTab(tab)
 	scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
 end
 
-globalBtn.MouseButton1Click:Connect(function() switchTab("Global") end)
+privateBtn.MouseButton1Click:Connect(function() switchTab("Private") end)
 realChatBtn.MouseButton1Click:Connect(function() switchTab("RealChat") end)
 
 -- UI Display Function
 local function addMessage(speaker, message, category, color)
-	category = category or "Global"
+	category = category or "Private"
 	
 	local textLabel = Instance.new("TextLabel")
 	textLabel.Size = UDim2.new(1, 0, 0, 0)
@@ -247,14 +247,16 @@ local function addMessage(speaker, message, category, color)
 	textLabel:SetAttribute("Category", category)
 
 	if speaker then
-		if category == "RealChat" then
-			textLabel.Text = string.format("<font color=\"rgb(255,220,100)\">[%s]:</font> <font color=\"rgb(255,255,255)\">%s</font>", 
-				speaker, message)
-		else
-			local c = color or Color3.fromRGB(100, 200, 255)
-			textLabel.Text = string.format("<font color=\"rgb(200,200,200)\">[%s]:</font> <font color=\"rgb(%d,%d,%d)\">%s</font>", 
-				speaker, c.R * 255, c.G * 255, c.B * 255, message)
+		local c = color or Color3.fromRGB(100, 200, 255)
+		local formattedSpeaker = speaker
+
+		-- Highlight [RC] tag in Yellow
+		if speaker:sub(1, 4) == "[RC]" then
+			formattedSpeaker = "<font color=\"rgb(255,255,0)\">[RC]</font>" .. speaker:sub(5)
 		end
+
+		textLabel.Text = string.format("<font color=\"rgb(200,200,200)\">[%s]:</font> <font color=\"rgb(%d,%d,%d)\">%s</font>", 
+			formattedSpeaker, c.R * 255, c.G * 255, c.B * 255, message)
 	else
 		local c = color or Color3.fromRGB(255, 100, 100)
 		textLabel.Text = string.format("<font color=\"rgb(%d,%d,%d)\">%s</font>", c.R * 255, c.G * 255, c.B * 255, message)
@@ -274,7 +276,7 @@ end
 ---------------------------------------------------------
 -- HTTP PUSH (BROADCAST HELPER)
 ---------------------------------------------------------
-local function broadcastToJSON(senderName, messageText)
+local function broadcastToJSON(senderName, messageText, isPrivate)
 	task.spawn(function()
 		pcall(function()
 			local fetchResponse = requestFunc({
@@ -292,6 +294,7 @@ local function broadcastToJSON(senderName, messageText)
 			local newEntry = {
 				user = senderName,
 				msg = messageText,
+				isPrivate = isPrivate or false,
 				time = os.time()
 			}
 			table.insert(currentList, newEntry)
@@ -314,13 +317,11 @@ local function broadcastToJSON(senderName, messageText)
 end
 
 ---------------------------------------------------------
--- REAL IN-GAME CHAT LISTENER & RELAY TO JSONBIN
+-- REAL IN-GAME CHAT LISTENER & RELAY
 ---------------------------------------------------------
 local function handleIncomingRealChat(senderName, messageText)
-	-- Shows in your Real Chat tab locally
-	addMessage(senderName, messageText, "RealChat")
-	-- Relays over JSONBin so your friend sees it in their Global tab
-	broadcastToJSON("[RC] " .. senderName, messageText)
+	-- Relay captured server chat to JSONBin (not private)
+	broadcastToJSON("[RC] " .. senderName, messageText, false)
 end
 
 -- Hook into modern TextChatService
@@ -383,7 +384,13 @@ task.spawn(function()
 							processedMessages[msgKey] = true
 							
 							if item.user ~= Player.Name then
-								addMessage(item.user, item.msg, "Global", Color3.fromRGB(100, 200, 255))
+								if item.isPrivate then
+									-- Route private friend messages to Private Chat tab
+									addMessage(item.user, item.msg, "Private", Color3.fromRGB(100, 200, 255))
+								else
+									-- Route captured server chats to Real Chat Stream tab
+									addMessage(item.user, item.msg, "RealChat", Color3.fromRGB(255, 255, 255))
+								end
 							end
 						end
 					end
@@ -393,16 +400,17 @@ task.spawn(function()
 	end
 end)
 
--- Send new message when pressing Enter
+-- Send private message when pressing Enter inside chatBox
 chatBox.FocusLost:Connect(function(enterPressed)
 	if enterPressed and chatBox.Text ~= "" then
 		local msg = chatBox.Text
 		chatBox.Text = ""
 
-		addMessage(Player.Name, msg, "Global", Color3.fromRGB(255, 255, 255))
-		broadcastToJSON(Player.Name, msg)
+		-- Display in your own Private tab locally and broadcast as private
+		addMessage(Player.Name, msg, "Private", Color3.fromRGB(255, 255, 255))
+		broadcastToJSON(Player.Name, msg, true)
 	end
 end)
 
-addMessage(nil, "Connected to Global HTTP Chat!", "System", Color3.fromRGB(100, 255, 100))
-switchTab("Global")
+addMessage(nil, "Connected to Chat System!", "System", Color3.fromRGB(100, 255, 100))
+switchTab("Private")
