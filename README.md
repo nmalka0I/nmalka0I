@@ -1,4 +1,4 @@
--- LocalScript for Delta Executor (In-Game Chat & JSON-Chat Setup)
+-- LocalScript for Delta Executor (HTTP Global Chat + Real Chat Auto-Relay)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,7 +24,7 @@ local MASTER_KEY = "$2a$10$bRRpF3qqRayEUQNrEW4z8uOFuHeBuAF.2NI.KJ/Us9Mcldjf2cHCa
 local BIN_URL = "https://api.jsonbin.io/v3/b/" .. BIN_ID
 ---------------------------------------------------------
 
-local currentTab = "InGame"
+local currentTab = "Global"
 
 -- UI Setup
 local screenGui = Instance.new("ScreenGui")
@@ -101,8 +101,8 @@ local function createTabBtn(text)
 	return btn
 end
 
-local inGameBtn = createTabBtn("In-Game Chat")
-local jsonChatBtn = createTabBtn("JSON-Chat")
+local globalBtn = createTabBtn("Global Chat")
+local realChatBtn = createTabBtn("Real Chat")
 
 -- Scrolling Message Container
 local scrollFrame = Instance.new("ScrollingFrame")
@@ -203,12 +203,16 @@ end)
 -- Tab Switcher Logic
 local function switchTab(tab)
 	currentTab = tab
-	if currentTab == "InGame" then
-		inGameBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		jsonChatBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+	if currentTab == "Global" then
+		globalBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		realChatBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+		chatBox.Visible = true
+		scrollFrame.Size = UDim2.new(1, -8, 1, -62)
 	else
-		jsonChatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		inGameBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+		realChatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		globalBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+		chatBox.Visible = false
+		scrollFrame.Size = UDim2.new(1, -8, 1, -34)
 	end
 
 	for _, child in ipairs(scrollFrame:GetChildren()) do
@@ -224,12 +228,12 @@ local function switchTab(tab)
 	scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
 end
 
-inGameBtn.MouseButton1Click:Connect(function() switchTab("InGame") end)
-jsonChatBtn.MouseButton1Click:Connect(function() switchTab("JSONChat") end)
+globalBtn.MouseButton1Click:Connect(function() switchTab("Global") end)
+realChatBtn.MouseButton1Click:Connect(function() switchTab("RealChat") end)
 
 -- UI Display Function
 local function addMessage(speaker, message, category, color)
-	category = category or "InGame"
+	category = category or "Global"
 	
 	local textLabel = Instance.new("TextLabel")
 	textLabel.Size = UDim2.new(1, 0, 0, 0)
@@ -243,9 +247,14 @@ local function addMessage(speaker, message, category, color)
 	textLabel:SetAttribute("Category", category)
 
 	if speaker then
-		local c = color or Color3.fromRGB(100, 200, 255)
-		textLabel.Text = string.format("<font color=\"rgb(200,200,200)\">[%s]:</font> <font color=\"rgb(%d,%d,%d)\">%s</font>", 
-			speaker, c.R * 255, c.G * 255, c.B * 255, message)
+		if category == "RealChat" then
+			textLabel.Text = string.format("<font color=\"rgb(255,220,100)\">[%s]:</font> <font color=\"rgb(255,255,255)\">%s</font>", 
+				speaker, message)
+		else
+			local c = color or Color3.fromRGB(100, 200, 255)
+			textLabel.Text = string.format("<font color=\"rgb(200,200,200)\">[%s]:</font> <font color=\"rgb(%d,%d,%d)\">%s</font>", 
+				speaker, c.R * 255, c.G * 255, c.B * 255, message)
+		end
 	else
 		local c = color or Color3.fromRGB(255, 100, 100)
 		textLabel.Text = string.format("<font color=\"rgb(%d,%d,%d)\">%s</font>", c.R * 255, c.G * 255, c.B * 255, message)
@@ -253,7 +262,6 @@ local function addMessage(speaker, message, category, color)
 
 	textLabel.Parent = scrollFrame
 	
-	-- Apply visibility depending on active tab
 	if category == "System" or category == currentTab then
 		textLabel.Visible = true
 	else
@@ -306,14 +314,16 @@ local function broadcastToJSON(senderName, messageText)
 end
 
 ---------------------------------------------------------
--- REAL IN-GAME CHAT LISTENER & RELAY
+-- REAL IN-GAME CHAT LISTENER & RELAY TO JSONBIN
 ---------------------------------------------------------
 local function handleIncomingRealChat(senderName, messageText)
-	addMessage(senderName, messageText, "InGame", Color3.fromRGB(255, 255, 255))
+	-- Shows in your Real Chat tab locally
+	addMessage(senderName, messageText, "RealChat")
+	-- Relays over JSONBin so your friend sees it in their Global tab
 	broadcastToJSON("[RC] " .. senderName, messageText)
 end
 
--- Hook into TextChatService channels safely
+-- Hook into modern TextChatService
 if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
 	local textChannels = TextChatService:FindFirstChild("TextChannels")
 	if textChannels then
@@ -373,7 +383,7 @@ task.spawn(function()
 							processedMessages[msgKey] = true
 							
 							if item.user ~= Player.Name then
-								addMessage(item.user, item.msg, "JSONChat", Color3.fromRGB(100, 200, 255))
+								addMessage(item.user, item.msg, "Global", Color3.fromRGB(100, 200, 255))
 							end
 						end
 					end
@@ -383,16 +393,16 @@ task.spawn(function()
 	end
 end)
 
--- Send new message when pressing Enter inside custom box
+-- Send new message when pressing Enter
 chatBox.FocusLost:Connect(function(enterPressed)
 	if enterPressed and chatBox.Text ~= "" then
 		local msg = chatBox.Text
 		chatBox.Text = ""
 
-		addMessage(Player.Name, msg, currentTab, Color3.fromRGB(255, 255, 255))
+		addMessage(Player.Name, msg, "Global", Color3.fromRGB(255, 255, 255))
 		broadcastToJSON(Player.Name, msg)
 	end
 end)
 
 addMessage(nil, "Connected to Global HTTP Chat!", "System", Color3.fromRGB(100, 255, 100))
-switchTab("InGame")
+switchTab("Global")
